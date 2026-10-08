@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装依赖
+        run: python -m pip install --upgrade pip && pip install pytest && pip install -e .
+
+      - name: 规则表校验
+        run: python -c "import json;json.load(open('prompt_lint/rules.json'));print('rules.json 合法')"
+
+      - name: 运行测试（含 Python / JS 双端一致性）
+        run: pytest tests/ -q
+
+      - name: CLI 冒烟
+        run: |
+          python -m prompt_lint.cli "麻烦你帮我把这篇文章优化一下，写得好看点，谢谢！" || true
+          python -m prompt_lint.cli --json "帮我总结这份报告" > /dev/null && echo "CLI 正常"
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 同步规则表到静态站点
+        run: |
+          cp prompt_lint/rules.json web/rules.json
+          mkdir -p _site && cp -r web/* _site/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

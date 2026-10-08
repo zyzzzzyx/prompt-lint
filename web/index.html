@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PromptLint · 提示词歧义诊断（模型视角）</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <span class="logo">PL</span>
+      <div>
+        <h1>PromptLint</h1>
+        <p class="tagline">站在模型视角，找出提示词里会让它猜错的地方</p>
+      </div>
+    </div>
+    <div class="privacy" title="所有计算都在你的浏览器里完成">
+      <span class="dot"></span>纯本地计算，提示词不会上传
+    </div>
+  </div>
+</header>
+
+<main class="wrap layout">
+
+  <!-- 左：输入 -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>1 · 粘贴你的提示词</h2>
+      <div class="head-actions">
+        <button id="btn-sample" class="ghost">载入示例</button>
+        <button id="btn-clear" class="ghost">清空</button>
+      </div>
+    </div>
+    <textarea id="input" spellcheck="false"
+      placeholder="把你平时发给 AI 的那段话原样粘进来。&#10;&#10;例如：&#10;麻烦你帮我把这篇文章优化一下，写得好看点，另外顺便起个标题，尽量简洁全面，不要太多专业术语，谢谢！"></textarea>
+    <div class="panel-foot">
+      <div class="samples" id="samples"></div>
+      <button id="btn-run" class="primary">诊断</button>
+    </div>
+    <p class="hint">快捷键 <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 直接诊断</p>
+  </section>
+
+  <!-- 右：结果 -->
+  <section class="panel results" id="results">
+    <div class="empty-state">
+      <div class="empty-icon">⌘</div>
+      <p>把提示词粘到左边，点「诊断」。</p>
+      <p class="dim">工具会告诉你：模型会在哪些地方猜错，以及它更希望收到什么样的话。</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <span>规则表 <code>rules.json</code> 是唯一真相源，Python CLI 与本页共用同一份。</span>
+  <a id="repo-link" href="#" target="_blank" rel="noopener">GitHub 仓库</a>
+</footer>
+
+<script src="./app.js"></script>
+</body>
+</html>
