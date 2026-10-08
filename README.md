@@ -28,7 +28,7 @@ $ python -m prompt_lint.cli "麻烦你帮我把这篇文章优化一下，写得
 ## 快速开始
 
 ```bash
-git clone https://github.com/<你的用户名>/prompt-lint.git
+git clone https://github.com/zyzzzzyx/prompt-lint.git
 cd prompt-lint
 pip install -e .
 
@@ -47,7 +47,9 @@ python -m prompt_lint.cli --json "帮我总结这份报告"
 
 退出码：`0` 表示得分 ≥ 75，否则为 `1`——可以直接挂进 CI 或 pre-commit。
 
-在线版：推到 GitHub 后开启 **Settings → Pages → GitHub Actions**，CI 会自动部署 `web/`，得到一个可分享的静态网址。
+在线版：**https://zyzzzzyx.github.io/prompt-lint/**
+仓库 Settings → Pages → Build and deployment 的 Source 选 **GitHub Actions** 后，
+每次 push 到 `main`，CI 都会自动把 `web/` 部署到这个地址。
 
 ---
 
