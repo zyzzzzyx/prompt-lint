@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from .analyzer import scan_keywords, split_sentences
+from .clarify import build_clarify_block, default_level
 
 PLACEHOLDER = lambda hint: f"[待补充：{hint}]"
 
@@ -73,7 +74,8 @@ def _issue_by_id(issues: list[Any], iid: str):
     return next((i for i in issues if i.id == iid), None)
 
 
-def build_rewrite(text: str, rules: dict, issues: list[Any]) -> str:
+def build_rewrite(text: str, rules: dict, issues: list[Any],
+                  clarify_level: str | None = None) -> str:
     tpl = rules["rewrite_template"]
     ask_map = {d["id"]: d.get("ask") for d in rules["detectors"]}
 
@@ -181,6 +183,12 @@ def build_rewrite(text: str, rules: dict, issues: list[Any]) -> str:
         f"# 示例\n{example}",
     ]
     body = "\n\n".join(parts)
+
+    # ---- 生成前提问协议：把单向输出改成双向确认 ----
+    level = clarify_level or default_level(rules)
+    protocol = build_clarify_block(rules, issues, level)
+    if protocol:
+        body = f"{body}\n\n{protocol}"
 
     # ---- 待回答问题 ----
     questions: list[str] = []

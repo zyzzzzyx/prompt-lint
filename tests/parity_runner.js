@@ -1,5 +1,6 @@
 // 在 node 沙箱里加载 web/app.js，用同一批样例跑出分析结果，供 Python 端比对。
 // 用法：node tests/parity_runner.js   （输出 .tmp/parity_js.json）
+// 比对范围：分数、问题清单、重写结果、生成前提问协议（四个档位全覆盖）。
 const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
@@ -8,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const src = fs.readFileSync(path.join(root, 'web', 'app.js'), 'utf8');
 const rules = JSON.parse(fs.readFileSync(path.join(root, 'web', 'rules.json'), 'utf8'));
 const cases = JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'parity_cases.json'), 'utf8'));
+const levels = JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'parity_levels.json'), 'utf8'));
 
 // 最小 DOM stub：app.js 只在 init 里碰 DOM，这里让它跑完即可
 const el = new Proxy({}, { get: () => () => el, set: () => true });
@@ -26,8 +28,17 @@ vm.runInContext(src, sandbox);
 setTimeout(() => {
   const out = {};
   for (const [k, v] of Object.entries(cases)) {
-    const r = sandbox.analyze(v, rules);
-    out[k] = { score: r.score, grade: r.grade, ids: r.issues.map((i) => `${i.id}:${i.penalty}`) };
+    for (const level of levels) {
+      const r = sandbox.analyze(v, rules, level);
+      out[`${k}|${level}`] = {
+        score: r.score,
+        grade: r.grade,
+        ids: r.issues.map((i) => `${i.id}:${i.penalty}`),
+        rewrite: r.rewrite,
+        clarify: r.clarify,
+        clarify_recommended: r.clarify_recommended,
+      };
+    }
   }
   fs.writeFileSync(path.join(root, '.tmp', 'parity_js.json'), JSON.stringify(out, null, 1));
   process.exit(0);

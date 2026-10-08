@@ -38,6 +38,15 @@ jobs:
           python -m prompt_lint.cli --json "嗯帮我随便弄一下那个东西谢谢" > /dev/null || test $? -eq 1
           rm -f smoke_out.json
 
+      - name: 生成前提问协议冒烟
+        run: |
+          set -x
+          python -m prompt_lint.cli --clarify-only "帮我写个方案，写得专业一点" > smoke_clarify.txt || true
+          python -c "t=open('smoke_clarify.txt',encoding='utf-8').read(); assert '先不要产出' in t and '默认' in t and '不要为了凑数而提问' in t; print('协议正常', len(t), '字符')"
+          python -m prompt_lint.cli --clarify-only "帮我写个方案" --clarify off > smoke_off.txt || true
+          python -c "assert open('smoke_off.txt',encoding='utf-8').read().strip()==''; print('off 档为空，符合预期')"
+          rm -f smoke_clarify.txt smoke_off.txt
+
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -59,8 +68,6 @@ jobs:
           touch _site/.nojekyll
 
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true  # 自动启用 Pages，免手动去 Settings 里开
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

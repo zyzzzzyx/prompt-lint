@@ -33,15 +33,19 @@ CASES = {
     "conflict": "请详细但简短地介绍一下量子计算，要全面又精简。",
 }
 
+LEVELS = ["off", "light", "standard", "strict"]
+
 
 def _run_js() -> dict | None:
     if not shutil.which("node"):
         pytest.skip("未安装 node，跳过双端一致性校验")
     script = ROOT / "tests" / "parity_runner.js"
     cases_file = ROOT / ".tmp" / "parity_cases.json"
+    levels_file = ROOT / ".tmp" / "parity_levels.json"
     out_file = ROOT / ".tmp" / "parity_js.json"
     cases_file.parent.mkdir(exist_ok=True)
     cases_file.write_text(json.dumps(CASES, ensure_ascii=False), encoding="utf-8")
+    levels_file.write_text(json.dumps(LEVELS, ensure_ascii=False), encoding="utf-8")
     res = subprocess.run(["node", str(script)], cwd=ROOT, capture_output=True, text=True)
     if res.returncode != 0:
         pytest.fail(f"JS 端执行失败：{res.stderr[:800]}")
@@ -51,10 +55,15 @@ def _run_js() -> dict | None:
 def test_python_js_parity():
     js = _run_js()
     for key, text in CASES.items():
-        rep = analyze(text, RULES)
-        py_ids = [f"{i.id}:{i.penalty}" for i in rep.issues]
-        assert js[key]["score"] == rep.score, f"[{key}] 分数不一致 py={rep.score} js={js[key]['score']}"
-        assert js[key]["ids"] == py_ids, f"[{key}] 问题清单不一致\n py={py_ids}\n js={js[key]['ids']}"
+        for level in LEVELS:
+            rep = analyze(text, RULES, clarify_level=level)
+            got = js[f"{key}|{level}"]
+            py_ids = [f"{i.id}:{i.penalty}" for i in rep.issues]
+            assert got["score"] == rep.score, f"[{key}/{level}] 分数不一致 py={rep.score} js={got['score']}"
+            assert got["ids"] == py_ids, f"[{key}/{level}] 问题清单不一致\n py={py_ids}\n js={got['ids']}"
+            assert got["rewrite"] == rep.rewrite, f"[{key}/{level}] 重写结果不一致"
+            assert got["clarify"] == rep.clarify, f"[{key}/{level}] 提问协议不一致"
+            assert got["clarify_recommended"] == rep.clarify_recommended, f"[{key}/{level}] 推荐标记不一致"
 
 
 def test_rules_json_in_sync():

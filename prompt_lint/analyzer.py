@@ -43,6 +43,9 @@ class Report:
     stats: dict[str, Any]
     rewrite: str
     raw_length: int
+    clarify: str = ""            # 生成前提问协议正文（可单独复制）
+    clarify_level: str = "off"   # off / light / standard / strict
+    clarify_recommended: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +57,9 @@ class Report:
             "stats": self.stats,
             "rewrite": self.rewrite,
             "raw_length": self.raw_length,
+            "clarify": self.clarify,
+            "clarify_level": self.clarify_level,
+            "clarify_recommended": self.clarify_recommended,
         }
 
 
@@ -139,7 +145,8 @@ def _run_keyword(det: dict, text: str) -> tuple[list[tuple[int, int, str]], str]
     return hits, sev
 
 
-def analyze(text: str, rules: dict[str, Any] | None = None) -> Report:
+def analyze(text: str, rules: dict[str, Any] | None = None,
+            clarify_level: str | None = None) -> Report:
     rules = rules or load_rules()
     text = (text or "").strip()
     issues: list[Issue] = []
@@ -247,7 +254,10 @@ def analyze(text: str, rules: dict[str, Any] | None = None) -> Report:
         "low": sum(1 for i in issues if i.severity == "low"),
     }
 
+    from .clarify import build_clarify_block, default_level, should_recommend
     from .rewrite import build_rewrite  # 局部导入，便于单独使用本模块
+
+    level = clarify_level or default_level(rules)
 
     return Report(
         score=score,
@@ -256,6 +266,9 @@ def analyze(text: str, rules: dict[str, Any] | None = None) -> Report:
         issues=issues,
         bonuses=bonuses,
         stats=stats,
-        rewrite=build_rewrite(text, rules, issues),
+        rewrite=build_rewrite(text, rules, issues, level),
         raw_length=len(text),
+        clarify=build_clarify_block(rules, issues, level),
+        clarify_level=level,
+        clarify_recommended=should_recommend(score, bonuses, rules),
     )

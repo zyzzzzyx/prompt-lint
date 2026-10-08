@@ -6,6 +6,8 @@
     python -m prompt_lint.cli -f prompt.txt --md report.md
     echo "..." | python -m prompt_lint.cli
     python -m prompt_lint.cli -f p.txt --json
+    python -m prompt_lint.cli "帮我写个方案" --clarify strict
+    python -m prompt_lint.cli "帮我写个方案" --clarify-only   # 只打印提问协议
 """
 
 from __future__ import annotations
@@ -46,6 +48,15 @@ def render_text(rep, color: bool = True) -> str:
 
     L.append("-" * 62)
     L.append(rep.rewrite)
+    if rep.clarify:
+        L.append("")
+        L.append("-" * 62)
+        L.append(f"  生成前提问协议：{rep.clarify_level} 档，已附在重写结果末尾。")
+        if rep.clarify_recommended:
+            L.append("  这份提示词歧义偏多，建议保留该协议再发给模型。")
+    elif rep.clarify_recommended:
+        L.append("")
+        L.append("  提示：这份提示词歧义偏多，建议加 --clarify standard 让模型先提问再产出。")
     return "\n".join(L)
 
 
@@ -87,6 +98,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     ap.add_argument("--md", metavar="OUT", help="输出 Markdown 报告到文件")
     ap.add_argument("--rewrite-only", action="store_true", help="只输出重写后的提示词")
+    ap.add_argument(
+        "--clarify", choices=["off", "light", "standard", "strict"], default=None,
+        help="生成前提问协议档位（默认取规则表 default_level）："
+             "off=不加 / light=不停等只标注假设 / standard=先问再做 / strict=逐条确认且禁止编造",
+    )
+    ap.add_argument("--clarify-only", action="store_true",
+                    help="只输出生成前提问协议，可单独贴到任何提示词末尾")
     args = ap.parse_args(argv)
 
     if args.file:
@@ -100,7 +118,11 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("请提供提示词文本（位置参数、-f 文件，或管道输入）")
 
     rules = load_rules(None if not args.rules else __import__("pathlib").Path(args.rules))
-    rep = analyze(text, rules)
+    rep = analyze(text, rules, clarify_level=args.clarify)
+
+    if args.clarify_only:
+        print(rep.clarify)
+        return 0
 
     if args.json:
         print(json.dumps(rep.to_dict(), ensure_ascii=False, indent=2))

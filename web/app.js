@@ -72,8 +72,52 @@ function splitSentences(text) {
   return text.split(/[。！？；;\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
+/* ============ 生成前提问协议（Clarify-before-Generate） ============ */
+const MISSING_MARK = '<全文未出现>';
+const clarifyLevels = (rules) => Object.entries(((rules || {}).clarify_protocol || {}).levels || {})
+  .map(([key, lv]) => ({ key, label: lv.label || key, desc: lv.desc || '' }));
+
+const defaultLevel = (rules) => ((rules || {}).clarify_protocol || {}).default_level || 'standard';
+
+function deriveQuestions(issues, rules, maxN) {
+  const askMap = {};
+  for (const d of (rules.detectors || [])) if (d.ask) askMap[d.id] = d.ask;
+  const out = [];
+  const seen = {};
+  for (const sev of ['high', 'medium']) {
+    for (const i of issues) {
+      if (out.length >= maxN) return out;
+      if (i.severity !== sev || seen[i.id]) continue;
+      const q = askMap[i.id];
+      if (!q) continue;
+      seen[i.id] = 1;
+      const hits = (i.hits.length && i.hits[0] !== MISSING_MARK) ? i.hits.slice(0, 3).join('、') : '（未写明）';
+      out.push(q.replace('{hits}', hits));
+    }
+  }
+  return out;
+}
+
+function buildClarifyBlock(rules, issues, level) {
+  const cp = (rules || {}).clarify_protocol;
+  if (!cp) return '';
+  const lv = (cp.levels || {})[level || cp.default_level || 'standard'];
+  if (!lv || !lv.steps || !lv.steps.length) return '';
+  const maxN = lv.max_questions || 3;
+  const qs = deriveQuestions(issues, rules, maxN);
+  const qtext = qs.length ? qs.map((q, n) => `${n + 1}. ${q}`).join('\n') : (cp.no_question_fallback || '');
+  const body = lv.steps.map((s) => s.replace('{max}', String(maxN)).replace('{questions}', qtext)).join('\n\n');
+  return `${cp.standalone_header || '# 生成前提问协议'}（${lv.label}）\n\n${body}`;
+}
+
+function shouldRecommend(score, bonuses, rules) {
+  const cp = (rules || {}).clarify_protocol || {};
+  const th = (cp.recommend_when || {}).score_below || 88;
+  return score < th && !bonuses.some((b) => b.key === 'has_clarify_request');
+}
+
 /* ============ 分析 ============ */
-function analyze(text, rules) {
+function analyze(text, rules, clarifyLevel) {
   text = (text || '').trim();
   const issues = [];
   const bonuses = [];
@@ -163,9 +207,13 @@ function analyze(text, rules) {
     low: issues.filter((i) => i.severity === 'low').length,
   };
 
+  const level = clarifyLevel || defaultLevel(rules);
   return {
     score, grade: g.label, verdict: g.verdict, issues, bonuses, stats,
-    rewrite: buildRewrite(text, rules, issues),
+    rewrite: buildRewrite(text, rules, issues, level),
+    clarify: buildClarifyBlock(rules, issues, level),
+    clarify_level: level,
+    clarify_recommended: shouldRecommend(score, bonuses, rules),
   };
 }
 
@@ -212,7 +260,7 @@ function findTaskSentence(text, rules) {
   return scored[0][1];
 }
 
-function buildRewrite(text, rules, issues) {
+function buildRewrite(text, rules, issues, clarifyLevel) {
   const tpl = rules.rewrite_template;
   const [taskSent, removed] = cleanNoise(findTaskSentence(text, rules));
 
@@ -270,7 +318,7 @@ function buildRewrite(text, rules, issues) {
   const exLine = firstMatch(EXAMPLE_PAT, text);
   const example = exLine || `（可选但收益最高）${PLACEHOLDER('给一个输入→输出样例，模型的对齐精度会明显提升')}`;
 
-  const body = [
+  let full = [
     `# 角色\n${role}`,
     `# 背景与目标\n${context}`,
     `# 输入材料\n${inputBlock}`,
@@ -279,6 +327,9 @@ function buildRewrite(text, rules, issues) {
     `# 约束\n${constraints.join('\n')}`,
     `# 示例\n${example}`,
   ].join('\n\n');
+
+  const clarify = buildClarifyBlock(rules, issues, clarifyLevel || defaultLevel(rules));
+  if (clarify) full = `${full}\n\n${clarify}`;
 
   const askMap = {};
   for (const d of rules.detectors) if (d.ask) askMap[d.id] = d.ask;
@@ -301,7 +352,7 @@ function buildRewrite(text, rules, issues) {
   if (removed.length) foot.push(`## 已清理的噪声\n${removed.map((r) => `- ${r}`).join('\n')}`);
   if (questions.length) foot.push(`## 动手前先回答（按优先级）\n${questions.slice(0, 6).map((q, n) => `${n + 1}. ${q}`).join('\n')}`);
 
-  return `### 重写后的提示词（${tpl.name}）\n\n${body}` + (foot.length ? `\n\n---\n\n${foot.join('\n\n')}` : '');
+  return `### 重写后的提示词（${tpl.name}）\n\n${full}` + (foot.length ? `\n\n---\n\n${foot.join('\n\n')}` : '');
 }
 
 /* ============ 极简 Markdown 渲染 ============ */
@@ -406,6 +457,21 @@ function render(rep) {
       <p><span class="lbl fix">怎么改</span>${esc(i.suggestion)}</p>
     </div>`).join('');
 
+  const clarifyHTML = rep.clarify ? `
+    <div class="section-title">生成前提问协议 · 可单独复制</div>
+    <div class="rewrite-box protocol">
+      <div class="rewrite-head">
+        <span>${esc((RULES.clarify_protocol || {}).one_liner || '生成前提问协议')}</span>
+        <button id="btn-copy-clarify">复制协议</button>
+      </div>
+      <div class="md">${renderMD(rep.clarify)}</div>
+      <p class="protocol-note">这段已附在上面的重写结果末尾，也可以单独复制到<strong>任何</strong>提示词末尾——
+      它只约束「动手前先核对」，与具体任务无关。</p>
+    </div>` : (rep.clarify_recommended ? `
+    <div class="section-title">生成前提问协议 · 可单独复制</div>
+    <div class="protocol-off">这份提示词歧义偏多（${rep.score} 分），
+      建议把协议档位从「不加协议」改成「先问再做 · 推荐」，让模型生成前先把不确定点问出来。</div>` : '');
+
   box.innerHTML = `
     <div class="score-card">
       ${ringSVG(rep.score)}
@@ -431,7 +497,8 @@ function render(rep) {
         <button id="btn-copy">复制</button>
       </div>
       <div class="md">${renderMD(rep.rewrite)}</div>
-    </div>`;
+    </div>
+    ${clarifyHTML}`;
 
   $('#btn-copy').onclick = () => {
     navigator.clipboard.writeText(rep.rewrite).then(() => {
@@ -439,6 +506,14 @@ function render(rep) {
       setTimeout(() => { b.textContent = '复制'; }, 1600);
     });
   };
+  if ($('#btn-copy-clarify')) {
+    $('#btn-copy-clarify').onclick = () => {
+      navigator.clipboard.writeText(rep.clarify).then(() => {
+        const b = $('#btn-copy-clarify'); b.textContent = '已复制 ✓';
+        setTimeout(() => { b.textContent = '复制协议'; }, 1600);
+      });
+    };
+  }
 }
 
 /* ============ 示例 ============ */
@@ -462,13 +537,32 @@ function buildSamples() {
   });
 }
 
+function buildClarifyPicker() {
+  const sel = $('#clarify-level');
+  const levels = clarifyLevels(RULES);
+  sel.innerHTML = '';
+  for (const lv of levels) {
+    const o = document.createElement('option');
+    o.value = lv.key;
+    o.textContent = lv.label;
+    sel.appendChild(o);
+  }
+  sel.value = defaultLevel(RULES);
+  const showDesc = () => {
+    const cur = (RULES.clarify_protocol.levels || {})[sel.value];
+    $('#clarify-desc').textContent = cur ? cur.desc : '';
+  };
+  sel.onchange = () => { showDesc(); if ($('#input').value.trim()) run(); };
+  showDesc();
+}
+
 function run() {
   const text = $('#input').value;
   if (!text.trim()) {
     $('#results').innerHTML = '<div class="empty-state"><p>先粘贴一段提示词。</p></div>';
     return;
   }
-  render(analyze(text, RULES));
+  render(analyze(text, RULES, $('#clarify-level').value));
 }
 
 /* ============ 启动 ============ */
@@ -481,6 +575,7 @@ function run() {
     return;
   }
   buildSamples();
+  buildClarifyPicker();
   $('#btn-run').onclick = run;
   $('#btn-clear').onclick = () => { $('#input').value = ''; $('#results').innerHTML = '<div class="empty-state"><p>已清空。</p></div>'; };
   $('#btn-sample').onclick = () => { $('#input').value = SAMPLES[0][1]; run(); };
