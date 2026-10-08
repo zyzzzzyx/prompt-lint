@@ -32,19 +32,11 @@ jobs:
         run: |
           # CLI 约定：退出码 0=得分≥75，1=得分<75，两者都是合法结果。
           # 冒烟只验证 JSON 结构有效，不依赖分数。
-          python -m prompt_lint.cli --json "帮我总结这份报告" > /tmp/smoke.json || true
-          python - <<'EOF'
-          import json
-          d = json.load(open("/tmp/smoke.json", encoding="utf-8"))
-          assert isinstance(d["score"], int) and 0 <= d["score"] <= 100, d["score"]
-          assert isinstance(d["issues"], list)
-          assert "# 任务" in d["rewrite"]
-          print(f"CLI 正常，冒烟得分 {d['score']}")
-          EOF
-          echo "--- 退出码约定验证 ---"
-          python -m prompt_lint.cli --json "嗯帮我随便弄一下那个东西谢谢" > /dev/null
-          code=$?
-          if [ "$code" -eq 0 ] || [ "$code" -eq 1 ]; then echo "退出码 $code 符合约定"; else echo "非法退出码 $code"; exit 1; fi
+          set -x
+          python -m prompt_lint.cli --json "帮我总结这份报告" > smoke_out.json || true
+          python -c "import json; d = json.load(open('smoke_out.json', encoding='utf-8')); assert 0 <= d['score'] <= 100; assert isinstance(d['issues'], list); assert '# 任务' in d['rewrite']; print('CLI 正常，冒烟得分', d['score'])"
+          python -m prompt_lint.cli --json "嗯帮我随便弄一下那个东西谢谢" > /dev/null || test $? -eq 1
+          rm -f smoke_out.json
 
   deploy:
     needs: test
